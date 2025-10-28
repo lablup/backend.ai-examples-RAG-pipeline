@@ -1,0 +1,177 @@
+version: 25.15.0a1
+name: RAG-pipeline
+description: ''
+ownership:
+  domain_name: default
+  scope: user
+environment:
+  envs:
+    MOUNT_FOLDER: RAG-test
+tasks:
+- name: 01_data_ingestion
+  description: data ingestion
+  type: default
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  environment:
+    project: H100
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/testing/ngc-pytorch:25.09-pytorch2.9-py312-cuda13.0
+    envs:
+      TASK_DIR: task1_data_ingestion
+  resources:
+    cpu: 1
+    mem: 2g
+  resource_opts:
+    shmem: 64m
+  dependencies:
+  - 00_setup_dir
+  mounts:
+  - RAG-test
+  skip: true
+  command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
+- name: 02_doc_processing
+  description: document_processing
+  type: default
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  environment:
+    project: H100
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/testing/ngc-pytorch:25.09-pytorch2.9-py312-cuda13.0
+    envs:
+      TASK_DIR: task2_document_processing
+  resources:
+    cpu: 16
+    mem: 64g
+  resource_opts:
+    shmem: 1g
+  dependencies:
+  - 01_data_ingestion
+  mounts:
+  - RAG-test
+  skip: true
+  command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
+- name: 03_index_building
+  description: index building
+  type: default
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  environment:
+    project: H100
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/testing/ngc-pytorch:25.09-pytorch2.9-py312-cuda13.0
+    envs:
+      TASK_DIR: task3_index_building
+  resources:
+    cpu: 8
+    mem: 64g
+  resource_opts:
+    shmem: 2g
+  dependencies:
+  - 02_doc_processing
+  mounts:
+  - RAG-test
+  skip: true
+  command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
+- name: 04_query_processing
+  description: query processing
+  type: default
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  environment:
+    project: H100
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/testing/ngc-pytorch:25.09-pytorch2.9-py312-cuda13.0
+    envs:
+      TASK_DIR: task4_query_processing
+  resources:
+    cpu: 4
+    mem: 8g
+  resource_opts:
+    shmem: 1g
+  dependencies:
+  - 03_index_building
+  mounts:
+  - RAG-test
+  skip: true
+  command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
+- name: 05_resp_generation
+  description: response generation
+  type: default
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  environment:
+    project: H100
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/testing/ngc-pytorch:25.09-pytorch2.9-py312-cuda13.0
+    envs:
+      TASK_DIR: task5_response_generation
+  resources:
+    cpu: 1
+    mem: 2g
+  resource_opts:
+    shmem: 64m
+  dependencies:
+  - 04_query_processing
+  mounts:
+  - RAG-test
+  skip: true
+  command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
+- name: 00_setup_dir
+  description: setup directory for artifacts
+  type: default
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  environment:
+    project: H100
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/stable/python:3.13-ubuntu24.04-amd64
+    envs: {}
+  resources:
+    cpu: 1
+    mem: 1g
+  resource_opts:
+    shmem: 64m
+  dependencies: []
+  mounts:
+  - RAG-test
+  skip: true
+  command: 'cd $MOUNT_FOLDER && chmod +x ./setup_dirs.sh
+
+    ./setup_dirs.sh'
+- name: RAG-vs-nonRAG
+  description: compare with RAG-enabled vs baseline using same model
+  type: serving
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  environment:
+    project: H100
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/testing/ngc-pytorch:25.09-pytorch2.9-py312-cuda13.0
+    envs: {}
+  resources:
+    cpu: 8
+    mem: 16g
+  resource_opts:
+    shmem: 1g
+  dependencies:
+  - 04_query_processing
+  mounts:
+  - RAG-test
+  skip: false
+  service:
+    name: gradio-server-pl
+    model: gradio-server
+    model_mount_destination: ''
+    runtime_variant: custom
+    replicas: 1
+    open_to_public: true
+    ephemeral: false
