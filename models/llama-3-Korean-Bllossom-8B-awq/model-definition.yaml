@@ -1,0 +1,14 @@
+models:
+  - name: "llama-3-Korean-Bllossom-8B-awq"
+    model_path: "/models"
+    service:
+      pre_start_actions:
+        - action: run_command
+          args:
+            command: ["chmod", "+x", "/models/run-model-with-vllm.sh"]
+      start_command:
+        - "/models/run-model-with-vllm.sh"
+      port: 8000
+      health_check:
+        path: /v1/models
+        max_retries: 100
