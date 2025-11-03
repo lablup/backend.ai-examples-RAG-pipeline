@@ -6,13 +6,13 @@ This project implements a Retrieval-Augmented Generation (RAG) system for Korean
 
 The RAG pipeline is divided into these sequential tasks:
 
-1. **Data Ingestion** (`task1_data_ingestion.py`) - Extract and clean text from PDF files
-2. **Document Processing** (`task2_document_processing.py`) - Create document chunks and generate embeddings
-3. **Index Building** (`task3_index_building.py`) - Build FAISS and BM25 search indexes
-4. **Query Processing** (`task4_query_processing.py`) - Perform hybrid retrieval and reranking
-5. **Response Generation** (`task5_response_generation.py`) - Generate final response using LLM
-6. **Web Interface** (`task6_web_interface.py`) - Interactive RAG vs non-RAG comparison
-7. **Evaluation** (`task7_evaluation.py`) - Systematic evaluation with metrics and test dataset
+1. **Data Ingestion** (`task1_data_ingestion/main.py`) - Extract and clean text from PDF files
+2. **Document Processing** (`task2_document_processing/main.py`) - Create document chunks and generate embeddings
+3. **Index Building** (`task3_index_building/main.py`) - Build FAISS and BM25 search indexes
+4. **Query Processing** (`task4_query_processing/main.py`) - Perform hybrid retrieval and reranking
+5. **Response Generation** (`task5_response_generation/main.py`) - Generate final response using LLM
+6. **Web Interface** (`task6_web_interface/main.py`) - Interactive RAG vs non-RAG comparison
+7. **Evaluation** (`task7_evaluation/main.py`) - Systematic evaluation with metrics and test dataset
 
 Each task installs its own Python packages and can run in a completely isolated environment.
 
