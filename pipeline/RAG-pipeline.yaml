@@ -29,7 +29,7 @@ tasks:
   - 00_setup_dir
   mounts:
   - RAG-test
-  skip: true
+  skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 02_doc_processing
   description: document_processing
@@ -52,7 +52,7 @@ tasks:
   - 01_data_ingestion
   mounts:
   - RAG-test
-  skip: true
+  skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 03_index_building
   description: index building
@@ -75,7 +75,7 @@ tasks:
   - 02_doc_processing
   mounts:
   - RAG-test
-  skip: true
+  skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 04_query_processing
   description: query processing
@@ -98,7 +98,7 @@ tasks:
   - 03_index_building
   mounts:
   - RAG-test
-  skip: true
+  skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 05_resp_generation
   description: response generation
@@ -121,7 +121,7 @@ tasks:
   - 04_query_processing
   mounts:
   - RAG-test
-  skip: true
+  skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 00_setup_dir
   description: setup directory for artifacts
@@ -142,7 +142,7 @@ tasks:
   dependencies: []
   mounts:
   - RAG-test
-  skip: true
+  skip: false
   command: 'cd $MOUNT_FOLDER && chmod +x ./setup_dirs.sh
 
     ./setup_dirs.sh'
