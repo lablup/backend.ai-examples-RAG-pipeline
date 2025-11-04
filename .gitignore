@@ -41,7 +41,6 @@ ehthumbs.db
 Thumbs.db
 
 # Data and output directories
-data/
 cleaned/
 processed/
 indexes/
