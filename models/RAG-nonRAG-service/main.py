@@ -135,7 +135,7 @@ def load_components(config):
     # Initialize LLM
     llm_client = ChatOpenAI(
         model=config['model_name'],
-        openai_api_base=config['model_endpoint'],
+        openai_api_base=f"{config['model_endpoint']}/v1",
         openai_api_key=config['api_key'],
         temperature=config['temperature'],
         max_tokens=config['max_tokens'],
@@ -322,11 +322,12 @@ def run_full_evaluation(config, progress_callback=None) -> Dict:
     
     for i, item in enumerate(dataset):
         if progress_callback:
-            progress_callback(f"Evaluating {i+1}/{total}: {item['id']}")
-        
+            progress_callback(i + 1, total, item["id"])  # 숫자만 전달
         result = evaluate_single_question(item, config)
+        logger.info(f"answered result for question {item['id']}: {result}")
         results.append(result)
-    
+    logger.info(f"Evaluation results saved to {results}")
+
     # Calculate summary statistics
     summary = analyze_results(results)
     
@@ -408,9 +409,7 @@ def create_evaluation_interface():
     try:
         load_components(config)
         dataset = load_evaluation_dataset(config['eval_dataset_path'])
-        status_msg = f"✅ Ready for evaluation ({len(dataset)} questions loaded)"
     except Exception as e:
-        status_msg = f"❌ Setup failed: {str(e)}"
         dataset = []
     
     def run_evaluation_gradio(progress=gr.Progress()):
@@ -418,8 +417,13 @@ def create_evaluation_interface():
         if not dataset:
             return "❌ No dataset loaded", "", ""
         
-        def progress_callback(msg):
-            progress(msg)
+        def progress_callback(cur, tot, item_id):
+            try:
+                progress((cur, tot))
+            except Exception:
+                progress(cur / max(tot, 1))
+            logger.info("Evaluating question %d/%d (ID: %s)", cur, tot, item_id)
+
         
         try:
             results = run_full_evaluation(config, progress_callback)
@@ -430,29 +434,29 @@ def create_evaluation_interface():
             # Format summary
             summary = results['summary']
             summary_text = f"""
-📊 **Evaluation Summary**
-- Total Questions: {summary['total_questions']}
-- Successful: {summary['successful_evaluations']}
-- Failed: {summary['failed_evaluations']}
+                📊 **Evaluation Summary**
+                - Total Questions: {summary['total_questions']}
+                - Successful: {summary['successful_evaluations']}
+                - Failed: {summary['failed_evaluations']}
 
-🏆 **Performance Comparison**"""
+            🏆 **Performance Comparison**"""
             
             if METRICS_AVAILABLE and 'rag_rouge1_mean' in summary:
                 summary_text += f"""
-- RAG ROUGE-1 F1: {summary['rag_rouge1_mean']:.3f} (±{summary['rag_rouge1_std']:.3f})
-- Non-RAG ROUGE-1 F1: {summary['non_rag_rouge1_mean']:.3f} (±{summary['non_rag_rouge1_std']:.3f})
-- RAG Wins: {summary['rag_wins']} | Non-RAG Wins: {summary['non_rag_wins']} | Ties: {summary['ties']}"""
+                    - RAG ROUGE-1 F1: {summary['rag_rouge1_mean']:.3f} (±{summary['rag_rouge1_std']:.3f})
+                    - Non-RAG ROUGE-1 F1: {summary['non_rag_rouge1_mean']:.3f} (±{summary['non_rag_rouge1_std']:.3f})
+                    - RAG Wins: {summary['rag_wins']} | Non-RAG Wins: {summary['non_rag_wins']} | Ties: {summary['ties']}"""
             
             # Format detailed results
             detailed_text = ""
             for result in results['detailed_results'][:5]:  # Show first 5
                 if 'error' not in result:
                     detailed_text += f"""
-**Question ({result['id']}):** {result['question'][:100]}...
-**RAG Response:** {result['rag_response'][:200]}...
-**Non-RAG Response:** {result['non_rag_response'][:200]}...
-**Sources:** {len(result['sources'])} documents
----"""
+                        **Question ({result['id']}):** {result['question'][:100]}...
+                        **RAG Response:** {result['rag_response'][:200]}...
+                        **Non-RAG Response:** {result['non_rag_response'][:200]}...
+                        **Sources:** {len(result['sources'])} documents
+                        ---"""
             
             return "✅ Evaluation completed!", summary_text, detailed_text
             
@@ -517,26 +521,25 @@ def create_evaluation_interface():
     # Create interface
     with gr.Blocks(title="RAG Evaluation", theme=gr.themes.Soft()) as demo:
         gr.HTML("<h1 style='text-align: center;'>🧪 RAG vs Non-RAG Evaluation</h1>")
-        gr.HTML(f"<p style='text-align: center;'>{status_msg}</p>")
         
-        with gr.Tab("📊 Full Dataset Evaluation"):
-            gr.Markdown("Run comprehensive evaluation on the full dataset with automatic metrics.")
-            
-            eval_button = gr.Button("🚀 Start Full Evaluation", variant="primary", size="lg")
-            
-            with gr.Row():
-                eval_status = gr.Textbox(label="Status", interactive=False)
-            
-            with gr.Row():
-                with gr.Column():
-                    summary_output = gr.Markdown(label="Summary Results")
-                with gr.Column():
-                    details_output = gr.Markdown(label="Sample Results")
-            
-            eval_button.click(
-                fn=run_evaluation_gradio,
-                outputs=[eval_status, summary_output, details_output]
-            )
+        # with gr.Tab("📊 Full Dataset Evaluation"):
+        #     gr.Markdown("Run comprehensive evaluation on the full dataset with automatic metrics.")
+        #     
+        #     eval_button = gr.Button("🚀 Start Full Evaluation", variant="primary", size="lg")
+        #     
+        #     with gr.Row():
+        #         eval_status = gr.Textbox(label="Status", interactive=False)
+        #     
+        #     with gr.Row():
+        #         with gr.Column():
+        #             summary_output = gr.Markdown(label="Summary Results")
+        #         with gr.Column():
+        #             details_output = gr.Markdown(label="Sample Results")
+        #     
+        #     eval_button.click(
+        #         fn=run_evaluation_gradio,
+        #         outputs=[eval_status, summary_output, details_output]
+        #     )
         
         with gr.Tab("🔍 Single Question Test"):
             gr.Markdown("Test individual questions to see RAG vs Non-RAG comparison with detailed scoring.")
@@ -587,19 +590,19 @@ def create_evaluation_interface():
                 outputs=[rag_output, non_rag_output, rag_score_display, non_rag_score_display, sources_output, rag_score_num, non_rag_score_num]
             )
         
-        with gr.Tab("📋 Dataset Browser"):
-            if dataset:
-                dataset_df = pd.DataFrame([{
-                    'ID': item['id'],
-                    'Question': item['question'][:100] + "..." if len(item['question']) > 100 else item['question'],
-                    'Category': item.get('category', 'unknown'),
-                    'Difficulty': item.get('difficulty', 'medium'),
-                    'Requires Docs': item.get('requires_specific_docs', False)
-                } for item in dataset])
-                
-                gr.Dataframe(dataset_df, label=f"Evaluation Dataset ({len(dataset)} questions)")
-            else:
-                gr.Markdown("No dataset loaded.")
+        # with gr.Tab("📋 Dataset Browser"):
+        #     if dataset:
+        #         dataset_df = pd.DataFrame([{
+        #             'ID': item['id'],
+        #             'Question': item['question'][:100] + "..." if len(item['question']) > 100 else item['question'],
+        #             'Category': item.get('category', 'unknown'),
+        #             'Difficulty': item.get('difficulty', 'medium'),
+        #             'Requires Docs': item.get('requires_specific_docs', False)
+        #         } for item in dataset])
+        #         
+        #         gr.Dataframe(dataset_df, label=f"Evaluation Dataset ({len(dataset)} questions)")
+        #     else:
+        #         gr.Markdown("No dataset loaded.")
     
     return demo
 

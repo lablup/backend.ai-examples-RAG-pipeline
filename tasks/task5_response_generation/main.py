@@ -203,7 +203,7 @@ def synthesize_with_rag(query: str, context_docs: List[Document], config, tokeni
     # Initialize LLM client
     llm = ChatOpenAI(
         model=config['model_name'],
-        openai_api_base=config['model_endpoint'],
+        openai_api_base=f'{config['model_endpoint']}/v1',
         openai_api_key=config['api_key'],
         temperature=config['temperature'],
         max_tokens=config['max_tokens'],
@@ -245,7 +245,7 @@ def synthesize_without_rag(query: str, config) -> str:
     # Initialize LLM client
     llm = ChatOpenAI(
         model=config['model_name'],
-        openai_api_base=config['model_endpoint'],
+        openai_api_base=f'{config['model_endpoint']}/v1',
         openai_api_key=config['api_key'],
         temperature=config['temperature'],
         max_tokens=config['max_tokens'],
