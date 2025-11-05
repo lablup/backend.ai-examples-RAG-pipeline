@@ -1,0 +1,14 @@
+models:
+  - name: "gradio"
+    model_path: "/models"
+    service:
+      pre_start_actions:
+        - action: run_command
+          args:
+            command: ["chmod", "+x", "/models/entrypoint.sh"]
+      start_command:
+        - /models/entrypoint.sh
+      port: 7860
+      health_check:
+        path: /
+        max_retries: 50
