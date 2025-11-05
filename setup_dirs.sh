@@ -12,6 +12,12 @@ if [ ! -f ".env.template" ]; then
     exit 1
 fi
 
+# Check if MOUNT_FOLDER is set, default to current directory if not
+if [ -z "$MOUNT_FOLDER" ]; then
+    MOUNT_FOLDER=$(pwd)
+    echo "MOUNT_FOLDER not set. Using current directory: $MOUNT_FOLDER"
+fi
+
 # Extract directory paths from .env.template
 DIRS=$(grep -E '^(DATA_DIR|CACHE_DIR|PROCESSED_DIR|INDEX_DIR|QUERY_DIR|RESPONSE_DIR)=' .env.template | cut -d'=' -f2 | sed 's/#.*//' | sed 's/[[:space:]]*$//')
 
@@ -20,7 +26,7 @@ echo "Creating directories from .env.template..."
 # Create each directory
 for DIR in $DIRS; do
     if [ ! -d "$DIR" ]; then
-        mkdir -p "$DIR"
+        mkdir -p "$MOUNT_FOLDER/$DIR"
         echo "✅ Created: $DIR"
     else
         echo "📁 Already exists: $DIR"
