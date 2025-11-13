@@ -1,0 +1,14 @@
+models:
+  - name: "rag-sub-models"
+    model_path: "/models"
+    service:
+      pre_start_actions:
+        - action: run_command
+          args:
+            command: ["chmod", "+x", "/models/run-model-with-fastapi.sh"]
+      start_command:
+        - "/models/run-model-with-fastapi.sh"
+      port: 8000
+      health_check:
+        path: /health
+        max_retries: 100
