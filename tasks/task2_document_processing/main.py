@@ -27,6 +27,7 @@ from typing import Any, Dict, List
 
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Configure logging
@@ -40,7 +41,12 @@ def load_config():
         'processed_dir': Path(os.getenv('PROCESSED_DIR', '../processed')),
         'chunk_size': int(os.getenv('CHUNK_SIZE', '180')),
         'chunk_overlap': int(os.getenv('CHUNK_OVERLAP', '80')),
+        # local embedding (HuggingFace)
         'embed_model': os.getenv('EMBED_MODEL', ''),
+        
+        # remote embedding (OpenAI-style, e.g. https://.../v1)
+        'embed_endpoint': os.getenv('EMBEDDING_SERVICE_ENDPOINT', ''),
+        'embed_model_alias': os.getenv('EMBEDDING_API_KEY', 'kure'),
         'huggingface_token': os.getenv('HUGGINGFACE_TOKEN', ''),
     }
     
@@ -50,15 +56,43 @@ def load_config():
     return config
 
 def initialize_embeddings(config):
-    """Initialize embedding model"""
-    logger.info(f"Using HuggingFace embeddings: {config['embed_model']}")
+    """Initialize embedding model
+
+    - USE_LOCAL_EMBEDDINGS=true  → HuggingFaceEmbeddings (local)
+    - USE_LOCAL_EMBEDDINGS=false → OpenAIEmbeddings (remote /v1/embeddings)
+    """
+
+    use_local = os.getenv("USE_LOCAL_EMBEDDINGS", "false").lower() == "true"
+
     # Set HuggingFace token if provided
-    if config['huggingface_token']:
+    if use_local:
         os.environ['HF_TOKEN'] = config['huggingface_token']
-    
-    return HuggingFaceEmbeddings(
-        model_name=config['embed_model']
-    )
+        logger.info(f"Using HuggingFace embeddings: {config['embed_model']}")
+        return HuggingFaceEmbeddings(
+            model_name=config['embed_model']
+        )
+    # Set Backend.AI embedding service endpoint
+    else:
+        logger.info(f"Using Backend.AI Embedding Service at {config['embed_endpoint']}")
+        logger.info(f"Embedding model alias: {config['embed_model_alias']}")
+        # Remote embedding caller
+        emb =  OpenAIEmbeddings(
+            base_url=config['embed_endpoint'].rstrip("/"),       # ex) https://embedding-kure-v1.asia03.app.backend.ai/v1
+            api_key="dummy-key",                     # token 필요 없음
+            model=config['embed_model_alias']        # "kure"
+        )
+        # 디버그용
+        try:
+            from openai import OpenAI
+
+            # langchain-openai 0.2.x 기준 내부 client 접근
+            client = emb.client  # or emb._client depending on version
+            logger.info(f"[DEBUG] OpenAIEmbeddings base_url = {client._client.base_url}")
+        except Exception as e:
+            logger.warning(f"[DEBUG] Could not inspect base_url: {e}")
+
+        return emb
+
 
 def build_documents_from_txt(txt_path: Path, chunk_size: int, chunk_overlap: int) -> List[Document]:
     """Convert text file to chunked documents"""

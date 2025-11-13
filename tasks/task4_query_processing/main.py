@@ -4,6 +4,7 @@ Task 4: Query Processing
 - Load FAISS and BM25 indexes from Task 3
 - Implement hybrid retrieval combining semantic and keyword search
 - Apply optional cross-encoder reranking for improved relevance
+- Optional rerank: local CrossEncoder OR remote API (/v1/rerank)
 - Save retrieved context and sources for response generation
 
 Environment Variables:
@@ -28,246 +29,264 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
 
+import requests
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import (
+    OpenAIEmbeddings,  # for vectorstore loading with remote embedding if needed
+)
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# ============================================================
+# 1. Config
+# ============================================================
+
 def load_config():
-    """Load configuration from environment variables"""
+    """Load environment variables"""
     config = {
         'index_dir': Path(os.getenv('INDEX_DIR', '../indexes')),
         'query_dir': Path(os.getenv('QUERY_DIR', '../query_results')),
         'top_k': int(os.getenv('TOP_K', '32')),
         'final_k': int(os.getenv('FINAL_K', '6')),
         'rerank_pool': int(os.getenv('RERANK_POOL', '40')),
+
+        # Rerank settings
         'use_rerank': os.getenv('USE_RERANK', 'true').lower() == 'true',
+        'use_local_rerank': os.getenv('USE_LOCAL_RERANK', 'false').lower() == 'true',
         'rerank_model': os.getenv('RERANK_MODEL', ''),
+        'rerank_endpoint': os.getenv('RERANK_SERVICE_ENDPOINT', '').rstrip('/'),
+
+        # Query
         'query': os.getenv('QUERY', ''),
-        'huggingface_token': os.getenv('HUGGINGFACE_TOKEN', ''),
     }
-    
-    # Create query results directory
+
     config['query_dir'].mkdir(parents=True, exist_ok=True)
-    
     return config
 
-def load_indexes(index_dir: Path, config):
-    """Load FAISS and BM25 indexes"""
-    # Load index metadata
+
+# ============================================================
+# 2. Load Indexes (FAISS + BM25)
+# ============================================================
+
+def load_indexes(index_dir: Path):
     metadata_path = index_dir / "index_metadata.pkl"
     if not metadata_path.exists():
-        raise FileNotFoundError("index_metadata.pkl not found. Run task3_index_building.py first.")
-    
+        raise FileNotFoundError("index_metadata.pkl not found.")
+
     with open(metadata_path, 'rb') as f:
         index_metadata = pickle.load(f)
-    
-    # Initialize embedding model
+
     embedding_config = index_metadata['embedding_config']
-    if config['huggingface_token']:
-        os.environ['HF_TOKEN'] = config['huggingface_token']
-    
-    embeddings = HuggingFaceEmbeddings(
-        model_name=embedding_config['embed_model']
-    )
-    
-    # Load FAISS index
+
+    # -------------------------------
+    # Load Embedding Model
+    # (Needed only for FAISS vectorstore load)
+    # -------------------------------
+    if 'embed_model' in embedding_config:
+        # Local HuggingFace embedding
+        embeddings = HuggingFaceEmbeddings(
+            model_name=embedding_config['embed_model']
+        )
+    else:
+        # Remote embedding service (OpenAI Embedding API)
+        embeddings = OpenAIEmbeddings(
+            base_url=embedding_config['embed_endpoint'].rstrip("/"),
+            api_key="dummy-key",
+            model=embedding_config['embed_model_alias']
+        )
+
+    # -------------------------------
+    # Load FAISS
+    # -------------------------------
     faiss_path = Path(index_metadata['faiss_path'])
-    if not faiss_path.exists():
-        raise FileNotFoundError(f"FAISS index not found at {faiss_path}")
-    
-    vectorstore = FAISS.load_local(str(faiss_path), embeddings, allow_dangerous_deserialization=True)
+    vectorstore = FAISS.load_local(
+        str(faiss_path),
+        embeddings,
+        allow_dangerous_deserialization=True
+    )
     logger.info("FAISS index loaded successfully")
-    
-    # Load BM25 index
+
+    # -------------------------------
+    # Load BM25
+    # -------------------------------
     bm25_path = Path(index_metadata['bm25_path'])
-    if not bm25_path.exists():
-        raise FileNotFoundError(f"BM25 index not found at {bm25_path}")
-    
     with open(bm25_path, 'rb') as f:
         bm25_retriever = pickle.load(f)
     logger.info("BM25 index loaded successfully")
-    
+
     return vectorstore, bm25_retriever, index_metadata
 
+
+# ============================================================
+# 3. Hybrid Retriever (BM25 + FAISS)
+# ============================================================
+
 def _retrieve_docs(retriever, query: str, k: int):
-    """Helper function to retrieve documents with proper k setting"""
     if hasattr(retriever, "k"):
         retriever.k = k
-    
+
     if hasattr(retriever, "invoke"):
-        docs = retriever.invoke(query)
-    else:
-        docs = retriever.get_relevant_documents(query)
-    
-    return docs or []
+        return retriever.invoke(query)
+    return retriever.get_relevant_documents(query) or []
+
 
 class HybridRetriever:
-    """Hybrid retriever combining BM25 and FAISS"""
-    
     def __init__(self, bm25_retriever, vector_retriever, weights=(0.5, 0.5), k=32, pool_k=40):
         self.bm25 = bm25_retriever
         self.vector = vector_retriever
         self.w_bm25, self.w_vector = weights
         self.k = k
         self.pool_k = pool_k
-    
+
     def get_relevant_documents(self, query: str) -> List[Document]:
-        """Retrieve documents using hybrid approach"""
-        # Get candidates from both retrievers
         bm25_docs = _retrieve_docs(self.bm25, query, min(self.pool_k, self.k))
         vector_docs = _retrieve_docs(self.vector, query, min(self.pool_k, self.pool_k))
-        
-        # Calculate reciprocal rank scores
+
         scores = defaultdict(float)
-        
+
         for rank, doc in enumerate(bm25_docs):
             scores[id(doc)] += self.w_bm25 / (rank + 1)
-        
+
         for rank, doc in enumerate(vector_docs):
             scores[id(doc)] += self.w_vector / (rank + 1)
-        
-        # Combine and deduplicate
-        unique_docs = {id(doc): doc for doc in bm25_docs + vector_docs}
-        
-        # Sort by combined scores
-        sorted_docs = sorted(
-            unique_docs.values(), 
-            key=lambda d: scores[id(d)], 
-            reverse=True
-        )
-        
-        return sorted_docs[:self.pool_k]
-    
-    def invoke(self, query: str) -> List[Document]:
-        """LangChain-style invoke method"""
-        return self.get_relevant_documents(query)
 
-def initialize_reranker(rerank_model: str):
-    """Initialize cross-encoder reranker"""
+        unique_docs = {id(doc): doc for doc in bm25_docs + vector_docs}
+        sorted_docs = sorted(unique_docs.values(), key=lambda d: scores[id(d)], reverse=True)
+
+        return sorted_docs[:self.pool_k]
+
+
+# ============================================================
+# 4. Rerank (Local / Remote)
+# ============================================================
+
+def initialize_local_reranker(model_name: str):
     try:
-        from sentence_transformers import CrossEncoder
-        reranker = CrossEncoder(rerank_model)
-        logger.info(f"Reranker loaded: {rerank_model}")
-        return reranker
+        from FlagEmbedding import FlagReranker
+        logger.info(f"Loading local reranker: {model_name}")
+        return FlagReranker(model_name, use_fp16=False, device="cpu")
     except Exception as e:
-        logger.error(f"Failed to load reranker: {e}")
+        logger.error(f"Failed to load local reranker: {e}")
         return None
 
-def rerank_documents(query: str, documents: List[Document], reranker, top_k: int) -> List[Document]:
-    """Rerank documents using cross-encoder"""
-    if not reranker or not documents:
+
+def remote_rerank_call(endpoint: str, query: str, docs: List[Document], top_k: int):
+    """
+    Calls remote rerank API: POST /v1/rerank
+    """
+    payload = {
+        "query": query,
+        "documents": [d.page_content for d in docs],
+        "top_n": top_k,
+    }
+
+    try:
+        r = requests.post(endpoint, json=payload, timeout=120)
+        r.raise_for_status()
+        data = r.json()
+
+        # API returns ranked: [{"index": idx, "relevance_score": x}, ...]
+        ranked_indices = [item["index"] for item in data.get("data", [])]
+
+        return [docs[i] for i in ranked_indices]
+
+    except Exception as e:
+        logger.error(f"Remote rerank API call failed: {e}")
+        return docs[:top_k]
+
+
+def local_rerank(query: str, documents: List[Document], reranker, top_k: int):
+    if not reranker:
         return documents[:top_k]
-    
-    # Create query-document pairs
-    pairs = [(query, doc.page_content) for doc in documents]
-    
-    # Get reranking scores
-    scores = reranker.predict(pairs)
-    
-    # Sort by scores
-    ranked_docs = sorted(
-        zip(documents, scores), 
-        key=lambda x: x[1], 
-        reverse=True
-    )
-    
-    return [doc for doc, score in ranked_docs[:top_k]]
+    try:
+        pairs = [[query, d.page_content] for d in documents]
+        scores = reranker.compute_score(pairs)
+        ranked = sorted(zip(documents, scores), key=lambda x: x[1], reverse=True)
+        return [doc for doc, _ in ranked[:top_k]]
+    except:
+        return documents[:top_k]
+
+
+# ============================================================
+# 5. Main
+# ============================================================
 
 def main():
-    """Main function to process query and retrieve context"""
     config = load_config()
-    
+
     if not config['query']:
-        logger.error("No query provided. Set QUERY environment variable.")
+        logger.error("QUERY is required.")
         return
-    
+
     query = config['query']
     logger.info(f"Processing query: {query}")
-    
-    # Load indexes
-    try:
-        vectorstore, bm25_retriever, index_metadata = load_indexes(config['index_dir'], config)
-    except Exception as e:
-        logger.error(f"Failed to load indexes: {e}")
-        return
-    
-    # Create hybrid retriever
+
+    vectorstore, bm25_retriever, index_metadata = load_indexes(config['index_dir'])
+
     vector_retriever = vectorstore.as_retriever(
         search_kwargs={"k": min(config['top_k'], config['rerank_pool'])}
     )
-    
+
     hybrid_retriever = HybridRetriever(
         bm25_retriever=bm25_retriever,
         vector_retriever=vector_retriever,
         weights=(0.5, 0.5),
         k=config['top_k'],
-        pool_k=config['rerank_pool']
+        pool_k=config['rerank_pool'],
     )
-    
-    # Retrieve candidate documents
-    logger.info("Retrieving candidate documents...")
+
+    # Step 1: Hybrid Retrieval
     candidate_docs = hybrid_retriever.get_relevant_documents(query)
-    logger.info(f"Retrieved {len(candidate_docs)} candidate documents")
-    
-    # Apply reranking if enabled
+    logger.info(f"Retrieved {len(candidate_docs)} candidates")
+
+    # Step 2: Rerank (local OR remote)
     if config['use_rerank']:
-        logger.info("Applying reranking...")
-        reranker = initialize_reranker(config['rerank_model'])
-        if reranker:
-            final_docs = rerank_documents(query, candidate_docs, reranker, config['final_k'])
-            logger.info(f"Reranked to {len(final_docs)} final documents")
+        logger.info("Reranking enabled")
+
+        if config['use_local_rerank']:
+            reranker = initialize_local_reranker(config['rerank_model'])
+            final_docs = local_rerank(query, candidate_docs, reranker, config['final_k'])
         else:
-            final_docs = candidate_docs[:config['final_k']]
+            final_docs = remote_rerank_call(
+                endpoint=config['rerank_endpoint'],
+                query=query,
+                docs=candidate_docs,
+                top_k=config['final_k']
+            )
     else:
         final_docs = candidate_docs[:config['final_k']]
-    
-    # Prepare results
+
+    # Save Results
     results = {
-        'query': query,
-        'num_candidates': len(candidate_docs),
-        'num_final': len(final_docs),
-        'config': {
-            'top_k': config['top_k'],
-            'final_k': config['final_k'],
-            'rerank_pool': config['rerank_pool'],
-            'use_rerank': config['use_rerank'],
-            'rerank_model': config['rerank_model']
-        },
-        'documents': []
+        "query": query,
+        "final_docs": len(final_docs),
+        "candidate_docs": len(candidate_docs),
+        "documents": [
+            {
+                "rank": i + 1,
+                "content": d.page_content,
+                "metadata": d.metadata
+            }
+            for i, d in enumerate(final_docs)
+        ],
     }
-    
-    # Convert documents to serializable format
-    for i, doc in enumerate(final_docs):
-        doc_data = {
-            'rank': i + 1,
-            'content': doc.page_content,
-            'metadata': dict(doc.metadata),
-            'preview': doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
-        }
-        results['documents'].append(doc_data)
-    
-    # Save results
+
     results_path = config['query_dir'] / "query_results.json"
     with open(results_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
-    logger.info(f"Query results saved to {results_path}")
-    
-    # Save documents for next task (pickle format for easy loading)
+
+    logger.info(f"Saved results to {results_path}")
+
+    # ✅ Task5 를 위한 pickle 저장 (retrieved_documents.pkl)
     docs_path = config['query_dir'] / "retrieved_documents.pkl"
     with open(docs_path, 'wb') as f:
         pickle.dump(final_docs, f)
     logger.info(f"Retrieved documents saved to {docs_path}")
-    
-    # Print summary
-    logger.info(f"Query processing completed:")
-    logger.info(f"  - Query: {query}")
-    logger.info(f"  - Candidates retrieved: {len(candidate_docs)}")
-    logger.info(f"  - Final documents: {len(final_docs)}")
-    logger.info(f"  - Reranking: {'enabled' if config['use_rerank'] else 'disabled'}")
+
 
 if __name__ == "__main__":
     main()
