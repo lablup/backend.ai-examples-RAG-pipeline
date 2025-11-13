@@ -238,40 +238,44 @@ Each task has different computing resource needs. Minimum baseline: **1 CPU Core
 backend.ai-examples-RAG-pipeline/
 ├── README.md                               # Main documentation
 ├── .env.template                           # Environment configuration template
-├── .gitignore                             # Git ignore file for security
 ├── run_task.sh                            # Task execution script
 ├── setup_dirs.sh                          # Directory setup script
 ├── data/                                   # PDF files (input)
 │   └── sample/                            # Sample data directory
+│       └── Backend.AI Web-UI User Guide (v25.05.250508KO).pdf
 ├── models/                                # Model configurations
 │   ├── RAG-nonRAG-service/               # RAG evaluation service
 │   │   ├── main.py                       # Evaluation system with web interface
 │   │   ├── requirements.txt              # Python dependencies
-│   │   ├── .env.template                 # Environment configuration
 │   │   ├── entrypoint.sh                 # Entry point script
 │   │   └── model-definition.yml          # Backend.AI model definition
-│   └── llama-3-Korean-Bllossom-8B-awq/   # LLM model configuration
-│       ├── .env.template                 # Model environment configuration
+│   ├── llama-3-Korean-Bllossom-8B-awq/   # LLM model configuration
+│   │   ├── model-definition.yaml         # Backend.AI model definition
+│   │   └── run-model-with-vllm.sh        # vLLM startup script
+│   └── rag-sub-models/                   # RAG sub-models service
 │       ├── model-definition.yaml         # Backend.AI model definition
-│       └── run-model-with-vllm.sh        # vLLM startup script
+│       ├── requirements.txt              # Python dependencies
+│       ├── run-model-with-fastapi.sh     # FastAPI startup script
+│       └── server.py                     # FastAPI server implementation
 ├── pipeline/                              # Pipeline configuration
 │   └── RAG-pipeline.yaml                 # YAML pipeline definition
-└── tasks/                                 # Task implementations
-    ├── task1_data_ingestion/
-    │   ├── main.py                       # PDF extraction and cleaning
-    │   └── requirements.txt              # Python dependencies
-    ├── task2_document_processing/
-    │   ├── main.py                       # Chunking and embedding generation
-    │   └── requirements.txt              # Python dependencies
-    ├── task3_index_building/
-    │   ├── main.py                       # FAISS and BM25 index creation
-    │   └── requirements.txt              # Python dependencies
-    ├── task4_query_processing/
-    │   ├── main.py                       # Hybrid retrieval and reranking
-    │   └── requirements.txt              # Python dependencies
-    └── task5_response_generation/
-        ├── main.py                       # LLM response generation
-        └── requirements.txt              # Python dependencies
+├── tasks/                                 # Task implementations
+│   ├── task1_data_ingestion/
+│   │   ├── main.py                       # PDF extraction and cleaning
+│   │   └── requirements.txt              # Python dependencies
+│   ├── task2_document_processing/
+│   │   ├── main.py                       # Chunking and embedding generation
+│   │   └── requirements.txt              # Python dependencies
+│   ├── task3_index_building/
+│   │   ├── main.py                       # FAISS and BM25 index creation
+│   │   └── requirements.txt              # Python dependencies
+│   ├── task4_query_processing/
+│   │   ├── main.py                       # Hybrid retrieval and reranking
+│   │   └── requirements.txt              # Python dependencies
+│   └── task5_response_generation/
+│       ├── main.py                       # LLM response generation
+│       └── requirements.txt              # Python dependencies
+└── utils/                                 # Utility functions and helpers
 
 # Generated directories (created during execution):
 ├── cleaned/                               # Cleaned text files (Task 1)
