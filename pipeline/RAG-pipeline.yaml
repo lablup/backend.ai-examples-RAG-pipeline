@@ -6,7 +6,7 @@ ownership:
   scope: user
 environment:
   envs:
-    MOUNT_FOLDER: RAG-test
+    MOUNT_FOLDER: RAG-example
 tasks:
 - name: 01_data_ingestion
   description: data ingestion
@@ -28,7 +28,7 @@ tasks:
   dependencies:
   - 00_setup_dir
   mounts:
-  - RAG-test
+  - RAG-example
   skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 02_doc_processing
@@ -51,7 +51,7 @@ tasks:
   dependencies:
   - 01_data_ingestion
   mounts:
-  - RAG-test
+  - RAG-example
   skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 03_index_building
@@ -74,7 +74,7 @@ tasks:
   dependencies:
   - 02_doc_processing
   mounts:
-  - RAG-test
+  - RAG-example
   skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 04_query_processing
@@ -97,7 +97,7 @@ tasks:
   dependencies:
   - 03_index_building
   mounts:
-  - RAG-test
+  - RAG-example
   skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 05_resp_generation
@@ -120,7 +120,7 @@ tasks:
   dependencies:
   - 04_query_processing
   mounts:
-  - RAG-test
+  - RAG-example
   skip: false
   command: cd $MOUNT_FOLDER && chmod +x run_task.sh && ./run_task.sh
 - name: 00_setup_dir
@@ -141,7 +141,7 @@ tasks:
     shmem: 64m
   dependencies: []
   mounts:
-  - RAG-test
+  - RAG-example
   skip: false
   command: 'cd $MOUNT_FOLDER && chmod +x ./setup_dirs.sh
 
@@ -165,11 +165,11 @@ tasks:
   dependencies:
   - 04_query_processing
   mounts:
-  - RAG-test
+  - RAG-example
   skip: false
   service:
-    name: gradio-server-pl
-    model: gradio-server
+    name: RAG-nonRAG
+    model: RAG-nonRAG-service
     model_mount_destination: ''
     runtime_variant: custom
     replicas: 1
